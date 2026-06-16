@@ -1,1 +1,89 @@
+from system.pyj.minescript import *
 
+Minecraft = JavaClass("net.minecraft.client.Minecraft")
+ClickType = JavaClass("net.minecraft.world.inventory.ClickType")
+_mc = Minecraft.getInstance()
+
+CHECK_INTERVAL_SEC = 6.0
+
+_last_check_time = 0.0
+_pending = None
+_pending_at = 0.0
+
+
+def click_slot(slot_index):
+    if _mc.screen is None:
+        return
+    menu = _mc.screen.getMenu()
+    if menu is None:
+        return
+    _mc.gameMode.handleInventoryMouseClick(
+        menu.containerId, slot_index, 0, ClickType.PICKUP, _mc.player)
+
+
+def is_at_hub():
+    item = _mc.player.getInventory().getItem(4)
+    return (not item.isEmpty()) and str(item.getItem()) == "minecraft:totem_of_undying"
+
+
+def current_slot_count():
+    if _mc.screen is None:
+        return None
+    try:
+        return _mc.screen.getMenu().slots.size()
+    except Exception:
+        return None
+
+
+def start_reconnect(now):
+    global _pending, _pending_at
+    echo("§e[HUB] Dang o hub, ket noi lai...")
+    player_press_use(True)
+    _pending = "release"
+    _pending_at = now + 0.15
+
+
+def on_tick(event):
+    global _last_check_time, _pending, _pending_at
+    now = event.time
+
+    if _pending is not None:
+        if now < _pending_at:
+            return
+        if _pending == "release":
+            player_press_use(False)
+            _pending = "click"
+            _pending_at = now + 0.5
+            return
+        if _pending == "click":
+            count = current_slot_count()
+            if count is None:
+                echo("§cKhong mo duoc GUI.")
+                _pending=None
+                return
+            if count >= 90:
+                click_slot(29)
+            _pending="click2"
+            _pending_at=now+1.0
+            return
+        if _pending=="click2":
+            count = current_slot_count()
+            if count is None:
+                echo("§cKhong mo duoc GUI.")
+                _pending=None
+                return
+            if count >= 41:
+                click_slot(4)
+            _pending = None
+            return
+
+    if now - _last_check_time < CHECK_INTERVAL_SEC:
+        return
+    _last_check_time = now
+
+    if is_at_hub():
+        start_reconnect(now)
+
+
+echo("§aAuto vao cum da kich hoat (kiem tra moi 6 giay, theo game tick).")
+add_event_listener("tick", on_tick)
