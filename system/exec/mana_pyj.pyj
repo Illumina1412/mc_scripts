@@ -1,0 +1,135 @@
+from system.pyj.minescript import *
+
+Minecraft = JavaClass("net.minecraft.client.Minecraft")
+ClickType = JavaClass("net.minecraft.world.inventory.ClickType")
+_mc = Minecraft.getInstance()
+
+CHECK_INTERVAL_SEC = 6.0     # bao lau kiem tra hub mot lan
+USE_HOLD_SEC = 1.2           # giu chuot phai bao lau
+USE_REST_SEC = 4.0           # nghi bao lau sau moi lan dung
+
+_last_check_time = 0.0
+_pending = None              # buoc dang cho: None | release | click | click2
+_pending_at = 0.0
+
+_use_state = "idle"          # idle | holding | resting
+_use_at = 0.0                # moc thoi gian cho buoc use ke tiep
+_count = 0                   # so lan da dung
+
+
+def click_slot(slot_index):
+    if _mc.screen is None:
+        return
+    menu = _mc.screen.getMenu()
+    if menu is None:
+        return
+    _mc.gameMode.handleInventoryMouseClick(
+        menu.containerId, slot_index, 0, ClickType.PICKUP, _mc.player)
+
+
+def is_at_hub():
+    item = _mc.player.getInventory().getItem(4)
+    return (not item.isEmpty()) and str(item.getItem()) == "minecraft:totem_of_undying"
+
+
+def current_slot_count():
+    if _mc.screen is None:
+        return None
+    try:
+        return _mc.screen.getMenu().slots.size()
+    except Exception:
+        return None
+
+
+# --- Chuoi reconnect (be nguyen tu auto_rejoin) ---
+
+def start_reconnect(now):
+    global _pending, _pending_at, _use_state
+    echo("§e[HUB] Dang o hub, ket noi lai...")
+    _use_state = "idle"          # dung spam use khi dang reconnect
+    player_press_use(False)
+    player_press_use(True)
+    _pending = "release"
+    _pending_at = now + 0.15
+
+
+def step_reconnect(now):
+    global _pending, _pending_at
+    if now < _pending_at:
+        return
+    if _pending == "release":
+        player_press_use(False)
+        _pending = "click"
+        _pending_at = now + 0.5
+        return
+    if _pending == "click":
+        count = current_slot_count()
+        if count is None:
+            echo("§cKhong mo duoc GUI.")
+            _pending = None
+            return
+        if count >= 90:
+            click_slot(29)
+        _pending = "click2"
+        _pending_at = now + 1.0
+        return
+    if _pending == "click2":
+        count = current_slot_count()
+        if count is None:
+            echo("§cKhong mo duoc GUI.")
+            _pending = None
+            return
+        if count >= 41:
+            click_slot(4)
+        _pending = None
+        return
+
+
+# --- Chuoi spam use (thay cho: press_use(True); sleep(1.2); press_use(False); sleep(4)) ---
+
+def step_use(now):
+    global _use_state, _use_at, _count
+    if _use_state == "idle":
+        # bat dau mot lan dung moi
+        _count += 1
+        echo(f"§a[#{_count}]")
+        player_press_use(True)
+        _use_state = "holding"
+        _use_at = now + USE_HOLD_SEC
+        return
+    if _use_state == "holding":
+        if now < _use_at:
+            return
+        player_press_use(False)
+        _use_state = "resting"
+        _use_at = now + USE_REST_SEC
+        return
+    if _use_state == "resting":
+        if now < _use_at:
+            return
+        _use_state = "idle"        # het nghi -> lan dung tiep theo
+        return
+
+
+def on_tick(event):
+    global _last_check_time
+    now = event.time
+
+    # 1) Dang reconnect thi chi lo reconnect, khong lam gi khac
+    if _pending is not None:
+        step_reconnect(now)
+        return
+
+    # 2) Kiem tra hub dinh ky
+    if now - _last_check_time >= CHECK_INTERVAL_SEC:
+        _last_check_time = now
+        if is_at_hub():
+            start_reconnect(now)
+            return
+
+    # 3) Khong o hub -> spam use
+    step_use(now)
+
+
+echo("§aStart! §7(\\killjob mana de dung)")
+add_event_listener("tick", on_tick)
