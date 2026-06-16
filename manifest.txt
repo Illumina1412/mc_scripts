@@ -1,1 +1,2 @@
 system/exec/auto_rejoin.pyj overwrite
+system/exec/mana_pyj.pyj overwrite
