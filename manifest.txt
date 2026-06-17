@@ -2,4 +2,4 @@ system/exec/auto_rejoin.pyj overwrite
 system/exec/mana_pyj.pyj overwrite
 
 system/exec/test.pyj overwrite
-system/exec/test2.pyj overwrite
+system/exec/bannhanh.py overwrite
