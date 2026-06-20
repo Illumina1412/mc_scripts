@@ -1,2 +1,2 @@
 system/exec/auto_rejoin.pyj overwrite
-
+system/exec/mining.py overwrite
