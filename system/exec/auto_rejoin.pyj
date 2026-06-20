@@ -85,5 +85,5 @@ def on_tick(event):
         start_reconnect(now)
 
 
-echo("§aAuto vao cum da kich hoat (kiem tra moi 6 giay, theo game tick).")
+echo("§aAuto vao cum da kich hoat")
 add_event_listener("tick", on_tick)
