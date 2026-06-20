@@ -1,5 +1,2 @@
 system/exec/auto_rejoin.pyj overwrite
-system/exec/mana_pyj.pyj overwrite
-system/exec/endurance.py overwrite
-system/exec/test.pyj overwrite
-system/exec/bannhanh.py overwrite
+
