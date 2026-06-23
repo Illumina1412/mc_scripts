@@ -62,7 +62,7 @@ def on_tick(event):
                 _pending=None
                 return
             if count >= 90:
-                click_slot(29)
+                click_slot(22)
             _pending="click2"
             _pending_at=now+1.0
             return
