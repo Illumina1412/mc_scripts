@@ -4,17 +4,17 @@ Minecraft = JavaClass("net.minecraft.client.Minecraft")
 ClickType = JavaClass("net.minecraft.world.inventory.ClickType")
 _mc = Minecraft.getInstance()
 
-CHECK_INTERVAL_SEC = 6.0     # bao lau kiem tra hub mot lan
-USE_HOLD_SEC = 1.2           # giu chuot phai bao lau
-USE_REST_SEC = 4.0           # nghi bao lau sau moi lan dung
+CHECK_INTERVAL_SEC = 6.0    
+USE_HOLD_SEC = 1.2        
+USE_REST_SEC = 4.0         
 
 _last_check_time = 0.0
-_pending = None              # buoc dang cho: None | release | click | click2
+_pending = None             
 _pending_at = 0.0
 
-_use_state = "idle"          # idle | holding | resting
-_use_at = 0.0                # moc thoi gian cho buoc use ke tiep
-_count = 0                   # so lan da dung
+_use_state = "idle"        
+_use_at = 0.0               
+_count = 0                   
 
 
 def click_slot(slot_index):
@@ -41,7 +41,7 @@ def current_slot_count():
         return None
 
 
-# --- Chuoi reconnect (be nguyen tu auto_rejoin) ---
+
 
 def start_reconnect(now):
     global _pending, _pending_at, _use_state
@@ -69,7 +69,7 @@ def step_reconnect(now):
             _pending = None
             return
         if count >= 90:
-            click_slot(29)
+            click_slot(22)
         _pending = "click2"
         _pending_at = now + 1.0
         return
