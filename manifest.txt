@@ -2,3 +2,4 @@ system/exec/auto_rejoin.pyj overwrite
 system/exec/mining.py overwrite
 system/exec/agility.py overwrite
 system/exec/endurance.py overwrite
+system/exec/bannhanh.py overwrite
