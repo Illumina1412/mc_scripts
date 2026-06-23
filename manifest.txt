@@ -4,3 +4,4 @@ system/exec/agility.py overwrite
 system/exec/endurance.py overwrite
 system/exec/bannhanh.py overwrite
 system/exec/mana_pyj.pyj overwrite
+system/exec/checktanhinh.py overwrite
