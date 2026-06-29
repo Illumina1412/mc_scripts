@@ -6,8 +6,6 @@ Minecraft = JavaClass("net.minecraft.client.Minecraft")
 _mc = Minecraft.getInstance()
 _ClickType = JavaClass("net.minecraft.world.inventory.ClickType")
 
-# ===================== HÀM TIỆN ÍCH =====================
-
 def smooth_turn(target_yaw, target_pitch, steps=35, delay=0.012):
     current_yaw, current_pitch = m.player_orientation()
     yaw_diff = (target_yaw - current_yaw + 180) % 360 - 180
@@ -50,7 +48,7 @@ def reconnect():
     if slot_count is None:
         m.echo("§cKhông mở được GUI."); return
     if slot_count >= 90:
-        click_slot(22); time.sleep(1.0)
+        click_slot(22); time.sleep(2.0)
         
     slot_count = wait_for_gui()
     if slot_count is None:
@@ -62,7 +60,7 @@ def reconnect():
 
 m.echo("§aStart! §7(\\killjob -1 dừng)")
 time.sleep(1)
-a=12
+a=14
 base_yaw, base_pitch = 90, 0
 maintain=time.time()
 count=0
@@ -80,12 +78,12 @@ while True:
         time.sleep(1)
         x, y, z = m.player_position()
         while y > 1:
-            time.sleep(0.3)
+            time.sleep(0.4)
             x, y, z = m.player_position()
             if time.time()-maintain >= a:
                 m.echo("Qua thoi gian bao vong lap, cuong che quay ve")
                 break  
-        time.sleep(0.1)
+        time.sleep(0.3)
         m.chat("/home thana")
         maintain=time.time()
         m.player_press_use(True);   time.sleep(1.2); m.player_press_use(False)
@@ -97,7 +95,7 @@ while True:
 
     x, y, z = m.player_position()
     while y > -62:
-        time.sleep(0.3)
+        time.sleep(0.7)
         x, y, z = m.player_position()
         if time.time()-maintain >= a:
             m.echo("Qua thoi gian bao vong lap, cuong che quay ve")
