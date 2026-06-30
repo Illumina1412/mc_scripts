@@ -2,12 +2,10 @@ from java import JavaClass
 import minescript as m
 import time
 
-time.sleep(2)
 Minecraft = JavaClass("net.minecraft.client.Minecraft")
 _mc = Minecraft.getInstance()
 _ClickType = JavaClass("net.minecraft.world.inventory.ClickType")
 
-# ===================== HÀM TIỆN ÍCH =====================
 
 def smooth_turn(target_yaw, target_pitch, steps=35, delay=0.012):
     current_yaw, current_pitch = m.player_orientation()
@@ -55,51 +53,42 @@ def reconnect():
     elif slot_count >= 41:
         click_slot(4); time.sleep(5.0)
 
-# ===================== MAIN =====================
 
 m.echo("§aStart! §7(\\killjob -1 dừng)")
-# Lấy pitch và yaw ban đầu 1 lần
-base_yaw, base_pitch = m.player_orientation()
 
 while True:
     if is_at_hub():
         reconnect()
-        # Cập nhật lại base sau reconnect
-        base_yaw, base_pitch = m.player_orientation()
         continue
-
     m.player_press_forward(True)
-    time.sleep(1.3)
+    time.sleep(1.4)
     m.player_press_forward(False)
     
     m.player_press_right(True)
     time.sleep(0.05)
     
-    smooth_turn(base_yaw, base_pitch - 6)
+    smooth_turn(0, -10 - 6)
     time.sleep(1.6)
-    smooth_turn(base_yaw, base_pitch + 2)
+    smooth_turn(0, -10 + 2)
     
     m.player_press_use(True);   time.sleep(1); m.player_press_use(False)
-    smooth_turn(base_yaw, base_pitch + 4)
+    smooth_turn(0, -10 + 4)
     time.sleep(1.7)
     m.player_press_right(False)
  
  
- 
-    
-    
     m.player_press_backward(True)
-    time.sleep(1.5)
+    time.sleep(1.6)
     m.player_press_backward(False)
     
     m.player_press_left(True)
     time.sleep(0.05)
     
-    smooth_turn(base_yaw, base_pitch - 6)
+    smooth_turn(0, -10 - 6)
     time.sleep(1.4)
-    smooth_turn(base_yaw, base_pitch + 2)
+    smooth_turn(0, -10 + 2)
     
     m.player_press_use(True);   time.sleep(1.2); m.player_press_use(False)
-    smooth_turn(base_yaw, base_pitch + 4)
-    time.sleep(1.3)
+    smooth_turn(0, -10 + 4)
+    time.sleep(1.6)
     m.player_press_left(False)
