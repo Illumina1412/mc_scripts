@@ -61,34 +61,34 @@ while True:
         reconnect()
         continue
     m.player_press_forward(True)
-    time.sleep(1.4)
+    time.sleep(1.6)
     m.player_press_forward(False)
     
     m.player_press_right(True)
     time.sleep(0.05)
     
     smooth_turn(0, -10 - 6)
-    time.sleep(1.6)
+    time.sleep(1.8)
     smooth_turn(0, -10 + 2)
     
     m.player_press_use(True);   time.sleep(1); m.player_press_use(False)
     smooth_turn(0, -10 + 4)
-    time.sleep(1.7)
+    time.sleep(1.9)
     m.player_press_right(False)
  
  
     m.player_press_backward(True)
-    time.sleep(1.6)
+    time.sleep(1.9)
     m.player_press_backward(False)
     
     m.player_press_left(True)
     time.sleep(0.05)
     
     smooth_turn(0, -10 - 6)
-    time.sleep(1.4)
+    time.sleep(1.5)
     smooth_turn(0, -10 + 2)
     
     m.player_press_use(True);   time.sleep(1.2); m.player_press_use(False)
     smooth_turn(0, -10 + 4)
-    time.sleep(1.6)
+    time.sleep(1.8)
     m.player_press_left(False)
