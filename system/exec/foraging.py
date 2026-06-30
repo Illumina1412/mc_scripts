@@ -67,12 +67,12 @@ while True:
     m.player_press_right(True)
     time.sleep(0.05)
     
-    smooth_turn(0, -10 - 6)
+    smooth_turn(0, 6 - 6)
     time.sleep(1.8)
-    smooth_turn(0, -10 + 2)
+    smooth_turn(0, 6 + 2)
     
     m.player_press_use(True);   time.sleep(1); m.player_press_use(False)
-    smooth_turn(0, -10 + 4)
+    smooth_turn(0, 6 + 4)
     time.sleep(1.9)
     m.player_press_right(False)
  
@@ -84,11 +84,11 @@ while True:
     m.player_press_left(True)
     time.sleep(0.05)
     
-    smooth_turn(0, -10 - 6)
+    smooth_turn(0, 6 - 6)
     time.sleep(1.5)
-    smooth_turn(0, -10 + 2)
+    smooth_turn(0, 6 + 2)
     
     m.player_press_use(True);   time.sleep(1.2); m.player_press_use(False)
-    smooth_turn(0, -10 + 4)
+    smooth_turn(0, 6 + 4)
     time.sleep(1.8)
     m.player_press_left(False)
