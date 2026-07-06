@@ -119,7 +119,7 @@ def start_reconnect(now):
 
 def start_dye(now):
     global _mode, _step, _at
-    echo("§d[DYE] Du 32 lime_dye: qua phai 2s -> mo ruong -> cat/fill...")
+    echo("§d[DYE] Đầy inv")
     _mode = "dye"; _step = "strafe_right"; _at = now + STRAFE_TICKS
     player_press_right(True)
 
