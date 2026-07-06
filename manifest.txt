@@ -8,3 +8,4 @@ system/exec/checktanhinh.py overwrite
 system/exec/a.py overwrite
 system/exec/b.py overwrite
 system/exec/foraging.py overwrite
+system/exec/test.pyj overwrite
