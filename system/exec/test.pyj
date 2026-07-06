@@ -1,0 +1,234 @@
+#!python
+# dye_farm.pyj - Pyjinn, 2 luong (uu tien: hub > cat/fill dye):
+#   1) HUB: totem o index 4 -> reconnect vao cum.
+#   2) DYE: o inv index 35 (o thu 27 inv chinh) co >=32 lime_dye ->
+#           di qua PHAI 1s -> mo ruong -> cat het dye (36 o) ->
+#           fill lai 1 dye/o (27 o inv chinh) -> dong ruong -> di qua TRAI 1s.
+#
+# Chay:  \dye_farm    Dung:  \killjob dye_farm
+# Bam event "tick" (20/giay, doc lap fps).
+
+from system.pyj.minescript import *
+
+Minecraft = JavaClass("net.minecraft.client.Minecraft")
+ClickType = JavaClass("net.minecraft.world.inventory.ClickType")
+_mc = Minecraft.getInstance()
+
+# --- Cau hinh (tick, 20 tick = 1 giay) ---
+RECONNECT_WAIT = 40
+AFTER_RECONNECT_COOLDOWN = 40
+STRAFE_TICKS = 40            # di ngang 2 giay = 40 tick
+CHEST_OPEN_GAP = 10
+ACTION_GAP = 3
+AFTER_DYE_COOLDOWN = 20
+
+TOTEM = "minecraft:totem_of_undying"
+FILL_ITEM = "minecraft:orange_dye"
+DYE_SLOT = 35                # o thu 27 inv chinh (sat hotbar)
+DYE_MIN = 32
+
+# --- Trang thai ---
+_tick = 0
+_next_check = 0
+_mode = "idle"              # idle | reconnect | dye
+_step = ""
+_at = 0
+
+
+def do_click(cid, slot, button, ctype):
+    _mc.gameMode.handleInventoryMouseClick(cid, slot, button, ctype, _mc.player)
+
+
+def slot_count():
+    if _mc.screen is None:
+        return None
+    try:
+        return _mc.screen.getMenu().slots.size()
+    except Exception:
+        return None
+
+
+def inv_item(idx):
+    item = _mc.player.getInventory().getItem(idx)
+    if item.isEmpty():
+        return None
+    return str(item.getItem())
+
+
+def is_at_hub():
+    return inv_item(4) == TOTEM
+
+
+def dye_needed():
+    item = _mc.player.getInventory().getItem(DYE_SLOT)
+    if item.isEmpty():
+        return False
+    return str(item.getItem()) == FILL_ITEM and item.getCount() >= DYE_MIN
+
+
+# --- Helper thao tac slot ruong ---
+
+def first_dye_full_inv(menu, total):    # 36 o inv -> clear
+    i = total - 36
+    while i < total:
+        it = menu.getSlot(i).getItem()
+        if (not it.isEmpty()) and str(it.getItem()) == FILL_ITEM:
+            return i
+        i += 1
+    return -1
+
+
+def first_empty_main(menu, total):      # 27 o inv chinh -> fill
+    i = total - 36
+    end = total - 9
+    while i < end:
+        if not menu.getSlot(i).hasItem():
+            return i
+        i += 1
+    return -1
+
+
+def first_dye_chest(menu, total):
+    i = 0
+    inv_start = total - 36
+    while i < inv_start:
+        it = menu.getSlot(i).getItem()
+        if (not it.isEmpty()) and str(it.getItem()) == FILL_ITEM:
+            return i
+        i += 1
+    return -1
+
+
+def first_empty_chest(menu, total):
+    i = 0
+    inv_start = total - 36
+    while i < inv_start:
+        if not menu.getSlot(i).hasItem():
+            return i
+        i += 1
+    return -1
+
+
+# --- Khoi dong mode ---
+
+def start_reconnect(now):
+    global _mode, _step, _at
+    echo("§e[HUB] O hub, ket noi lai...")
+    _mode = "reconnect"; _step = "wait"; _at = now + RECONNECT_WAIT
+
+
+def start_dye(now):
+    global _mode, _step, _at
+    echo("§d[DYE] Du 32 lime_dye: qua phai 2s -> mo ruong -> cat/fill...")
+    _mode = "dye"; _step = "strafe_right"; _at = now + STRAFE_TICKS
+    player_press_right(True)
+
+
+# --- Xu ly reconnect ---
+
+def run_reconnect(now):
+    global _mode, _step, _at, _next_check
+    if now < _at:
+        return
+    if _step == "wait":
+        player_press_use(True); _step = "release"; _at = now + 3; return
+    if _step == "release":
+        player_press_use(False); _step = "click"; _at = now + 10; return
+    if _step == "click":
+        c = slot_count()
+        if c is not None:
+            if c >= 90:
+                do_click(_mc.screen.getMenu().containerId, 22, 0, ClickType.PICKUP)
+            elif c >= 41:
+                do_click(_mc.screen.getMenu().containerId, 4, 0, ClickType.PICKUP)
+        _mode = "idle"; _next_check = now + AFTER_RECONNECT_COOLDOWN; return
+
+
+# --- Xu ly dye (co strafe truoc/sau) ---
+
+def run_dye(now):
+    global _mode, _step, _at, _next_check
+    if now < _at:
+        return
+
+    if _step == "strafe_right":
+        player_press_right(False)          # het 1s di phai
+        player_press_use(True); _step = "open_release"; _at = now + 2; return
+    if _step == "open_release":
+        player_press_use(False); _step = "wait_open"; _at = now + CHEST_OPEN_GAP; return
+    if _step == "wait_open":
+        c = slot_count()
+        if c is not None and c >= 63:
+            _step = "clear"
+        else:
+            # mo that bai -> qua trai ve cho cu roi thoi
+            player_press_left(True); _step = "strafe_left"; _at = now + STRAFE_TICKS
+        return
+
+    if _step == "strafe_left":
+        player_press_left(False)
+        _mode = "idle"; _next_check = now + AFTER_DYE_COOLDOWN; return
+
+    menu = _mc.screen.getMenu() if _mc.screen is not None else None
+    if menu is None:
+        _mode = "idle"; _next_check = now + AFTER_DYE_COOLDOWN; return
+    total = menu.slots.size()
+    cid = menu.containerId
+
+    if _step == "clear":
+        dye = first_dye_full_inv(menu, total)
+        if dye != -1:
+            do_click(cid, dye, 0, ClickType.QUICK_MOVE); _at = now + ACTION_GAP; return
+        _step = "fill"; return
+
+    if _step == "fill":
+        carried = menu.getCarried()
+        holding = (not carried.isEmpty()) and str(carried.getItem()) == FILL_ITEM
+        empty = first_empty_main(menu, total)
+        if not holding:
+            if not carried.isEmpty():
+                return
+            if empty == -1:
+                _step = "close"; return
+            src = first_dye_chest(menu, total)
+            if src == -1:
+                _step = "close"; return
+            do_click(cid, src, 0, ClickType.PICKUP); _at = now + ACTION_GAP; return
+        else:
+            if empty != -1:
+                do_click(cid, empty, 1, ClickType.PICKUP); _at = now + ACTION_GAP; return
+            back = first_empty_chest(menu, total)
+            if back == -1:
+                back = first_dye_chest(menu, total)
+            if back != -1:
+                do_click(cid, back, 0, ClickType.PICKUP); _at = now + ACTION_GAP
+            _step = "close"; return
+
+    if _step == "close":
+        _mc.player.closeContainer()
+        player_press_left(True); _step = "strafe_left"; _at = now + STRAFE_TICKS   # qua trai 1s
+        return
+
+
+# --- Vong lap tick ---
+
+def on_tick(event):
+    global _tick
+    _tick += 1
+    now = _tick
+
+    if _mode == "reconnect":
+        run_reconnect(now); return
+    if _mode == "dye":
+        run_dye(now); return
+
+    if now < _next_check:
+        return
+    if is_at_hub():
+        start_reconnect(now); return
+    if dye_needed():
+        start_dye(now); return
+
+
+echo("§aDye farm da bat (hub / qua phai -> cat-fill dye -> qua trai) - theo tick.")
+add_event_listener("tick", on_tick)
