@@ -9,3 +9,4 @@ system/exec/a.py overwrite
 system/exec/b.py overwrite
 system/exec/foraging.py overwrite
 system/exec/test.pyj overwrite
+system/exec/fishing.pyj overwrite
