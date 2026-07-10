@@ -1,0 +1,235 @@
+
+from system.pyj.minescript import *
+
+Minecraft = JavaClass("net.minecraft.client.Minecraft")
+ClickType = JavaClass("net.minecraft.world.inventory.ClickType")
+Blocks = JavaClass("net.minecraft.world.level.block.Blocks")
+BlockPos = JavaClass("net.minecraft.core.BlockPos")
+_mc = Minecraft.getInstance()
+
+# --- Cau hinh (don vi: tick, 20 tick = 1 giay) ---
+CAST_TIMEOUT = 450         # 25s = 500 tick: qua han thi cuong che thu + nem lai
+WATER_CHECK_DELAY = 45     # sau khi nem, doi ~1s roi kiem tra phao co trong nuoc khong
+RECAST_DELAY = 4          # sau khi thu can, cho bao nhieu tick roi moi nem lai (~1s)
+USE_HOLD = 3               # giu chuot phai bao nhieu tick khi nem/thu
+RECONNECT_WAIT = 40        # cho ~2s truoc khi bam use luc reconnect
+AFTER_RECONNECT_COOLDOWN = 40
+
+TOTEM = "minecraft:totem_of_undying"
+FISHING_ROD = "minecraft:fishing_rod"
+
+# --- Trang thai ---
+_tick = 0
+_next_check = 0
+
+_pending = None            # reconnect: None|"wait"|"release"|"click"
+_pending_at = 0
+
+_fish_state = "idle"       # fishing: idle|casting|cast|recasting
+_state_at = 0              # moc thoi gian cho state hien tai
+_cast_at = 0              # tick luc nem can ra
+_use_until = 0             # dang giu chuot phai den tick nay
+
+
+def slot_count():
+    if _mc.screen is None:
+        return None
+    try:
+        return _mc.screen.getMenu().slots.size()
+    except Exception:
+        return None
+
+
+def click_slot(idx):
+    screen = _mc.screen
+    if screen is None:
+        return
+    menu = screen.getMenu()
+    if menu is None:
+        return
+    _mc.gameMode.handleInventoryMouseClick(
+        menu.containerId, idx, 0, ClickType.PICKUP, _mc.player)
+
+
+def item_at(idx):
+    item = _mc.player.getInventory().getItem(idx)
+    if item.isEmpty():
+        return None
+    return str(item.getItem())
+
+
+def is_at_hub():
+    return item_at(4) == TOTEM          # totem o slot hotbar 5 (index 4)
+
+
+def holding_rod():
+    # Can cau o o dang cam (main hand)
+    item = _mc.player.getMainHandItem()
+    return (not item.isEmpty()) and str(item.getItem()) == FISHING_ROD
+
+
+def has_bobber():
+    # Phao dang o ngoai: fishing khac None
+    return _mc.player.fishing is not None
+
+
+def bobber_in_water():
+    # Kiem tra block tai vi tri phao co phai nuoc khong.
+    hook = _mc.player.fishing
+    if hook is None:
+        return False
+    try:
+        pos = BlockPos(
+            int(_mc.level.getBlockFloor(hook.getX())) if False else hook.getBlockX(),
+            hook.getBlockY(),
+            hook.getBlockZ())
+    except Exception:
+        # Fallback: dung toa do tho
+        pos = BlockPos(int(hook.getX()), int(hook.getY()), int(hook.getZ()))
+    state = _mc.level.getBlockState(pos)
+    fluid = state.getFluidState()
+    return not fluid.isEmpty()
+
+
+# --- Chuoi reconnect ---
+
+def start_reconnect(now):
+    global _pending, _pending_at, _fish_state
+    echo("§e[HUB] O hub, dang ket noi lai...")
+    _fish_state = "idle"
+    player_press_use(False)
+    _pending = "wait"
+    _pending_at = now + RECONNECT_WAIT
+
+
+def step_reconnect(now):
+    global _pending, _pending_at, _next_check
+    if now < _pending_at:
+        return
+    if _pending == "wait":
+        player_press_use(True)
+        _pending = "release"
+        _pending_at = now + 3
+        return
+    if _pending == "release":
+        player_press_use(False)
+        _pending = "click"
+        _pending_at = now + 10
+        return
+    if _pending == "click":
+        count = slot_count()
+        if count is not None:
+            if count >= 90:
+                click_slot(22)
+            elif count >= 41:
+                click_slot(4)
+        _pending = None
+        _next_check = now + AFTER_RECONNECT_COOLDOWN
+        return
+
+
+# --- Nem / thu can ---
+
+def do_use(now):
+    # Bat dau 1 lan chuot phai (nem hoac thu can)
+    global _use_until
+    player_press_use(True)
+    _use_until = now + USE_HOLD
+
+
+def release_use_if_due(now):
+    global _use_until
+    if _use_until and now >= _use_until:
+        player_press_use(False)
+        _use_until = 0
+
+
+# --- Vong lap fishing ---
+
+def step_fishing(now):
+    global _fish_state, _state_at, _cast_at
+
+    # Neu dang giu nut use tu lan truoc -> nha ra dung han
+    release_use_if_due(now)
+    if _use_until:
+        return  # dang trong 1 nhip use, cho nha nut xong da
+
+    if _fish_state == "idle":
+        # Chua nem -> nem can ra
+        do_use(now)
+        _cast_at = now
+        _fish_state = "casting"
+        _state_at = now
+        return
+
+    if _fish_state == "casting":
+        # Vua nem xong, cho phao on dinh roi kiem tra nuoc
+        if now - _cast_at >= WATER_CHECK_DELAY:
+            if not has_bobber():
+                # Nem loi / bi thu ngay -> cho cooldown roi nem lai
+                _fish_state = "recasting"
+                _state_at = now
+                return
+            if not bobber_in_water():
+                # Phao dinh item/mob/dat, khong xuong nuoc -> thu + nem lai
+                do_use(now)          # thu can
+                _fish_state = "recasting"
+                _state_at = now
+                return
+            # Phao xuong nuoc OK
+            _fish_state = "cast"
+            _state_at = now
+        return
+
+    if _fish_state == "cast":
+        # Dang cau. He thong thi giac ben ngoai lo viec KEO CAN khi ca can.
+        # Neu can da bi thu (het phao) -> cho cooldown roi nem lai.
+        if not has_bobber():
+            _fish_state = "recasting"
+            _state_at = now
+            return
+        # Timeout: qua 25s ma chua thu -> cuong che thu + nem lai.
+        if now - _cast_at >= CAST_TIMEOUT:
+            do_use(now)              # thu can
+            _fish_state = "recasting"
+            _state_at = now
+        return
+
+    if _fish_state == "recasting":
+        # Vua thu can, cho cooldown RECAST_DELAY roi ve idle de nem lai.
+        # Cho phep phao / animation on dinh, tranh nem la thu ngay.
+        if now - _state_at >= RECAST_DELAY:
+            _fish_state = "idle"
+        return
+
+
+# --- Vong lap tick ---
+
+def on_tick(event):
+    global _tick, _fish_state
+    _tick += 1
+    now = _tick
+
+    if _pending is not None:            # reconnect uu tien
+        step_reconnect(now)
+        return
+    if now < _next_check:               # cooldown sau reconnect
+        return
+
+    if is_at_hub():
+        player_press_use(False)
+        _fish_state = "idle"
+        start_reconnect(now)
+        return
+
+    if not holding_rod():
+        # Khong cam can cau -> khong lam gi
+        player_press_use(False)
+        _fish_state = "idle"
+        return
+
+    step_fishing(now)
+
+
+echo("§aFishing auto-cast da bat (theo tick, on dinh o fps thap).")
+add_event_listener("tick", on_tick)
