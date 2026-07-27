@@ -11,3 +11,6 @@ system/exec/foraging.py overwrite
 system/exec/test.pyj overwrite
 system/exec/fishing.pyj overwrite
 system/exec/fighting.py overwrite
+system/exec/forging19.py overwrite
+system/exec/forging24.py overwrite
+system/exec/forging25.py overwrite
