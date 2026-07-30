@@ -91,7 +91,7 @@ def place_anvil():
 
 # ===================== MAIN =====================
 ANVIL_POS = (50691, -47, 2424)
-anvil_cost = 24
+anvil_cost = 18
 count = 0
 last_count_time = time.time()
 m.echo(f"§aReady! Cost={anvil_cost}")
