@@ -1,0 +1,565 @@
+#!python
+# minescript.pyj - Pyjinn: reconnect totem + cat/fill dye + zigzag mining theo Z
+#   1) HUB:  totem o index 4  -> reconnect.
+#   2) DYE:  o inv index 26 co >=32 lime_dye -> mo ruong -> cat het dye -> fill -> dong.
+#   3) MOVE: Xet Z nguoi choi -> di trai/phai + giu chuot trai (dao line).
+#            Neu X dung 10 tick -> toi bien -> tien len truoc 1s -> lap.
+#            Z=9669 (line cuoi): mo ruong cat/fill dye -> /home -> wait 5s -> forward 1s.
+#
+# Chay:  \minescript    Dung:  \killjob minescript
+
+from system.pyj.minescript import *
+import minescript as m
+
+Minecraft = JavaClass("net.minecraft.client.Minecraft")
+ClickType = JavaClass("net.minecraft.world.inventory.ClickType")
+KeyMapping = JavaClass("net.minecraft.client.KeyMapping")
+InputConstants = JavaClass("com.mojang.blaze3d.platform.InputConstants")
+InteractionHand = JavaClass("net.minecraft.world.InteractionHand")
+_mc = Minecraft.getInstance()
+_mouse_left_key = InputConstants.Type.MOUSE.getOrCreate(0)  # GLFW_MOUSE_BUTTON_LEFT
+
+# --- Cau hinh (don vi: tick, 20 tick = 1 giay) ---
+RECONNECT_WAIT = 40
+AFTER_RECONNECT_COOLDOWN = 40
+CHEST_OPEN_GAP = 20
+ACTION_GAP = 3
+AFTER_DYE_COOLDOWN = 20
+
+# Move
+STUCK_MAX = 5                 # X ko doi trong 3 tick -> toi bien
+FORWARD_TICKS = 15             # tien len truoc 1 giay
+HOME_WAIT = 100                # cho 5 giay sau /home
+MOVE_COOLDOWN = 2             # nghi giua cac lan check Z
+
+# Z toa do: di trai  |  di phai
+LEFT_Z = {
+    9776, 9769, 9763, 9756, 9749, 9743, 9736, 9729, 9723, 9716,
+    9709, 9703, 9696, 9689, 9683, 9676, 9669
+}
+RIGHT_Z = {
+    9773, 9766, 9759, 9753, 9746, 9739, 9733, 9726, 9719, 9713,
+    9706, 9699, 9693, 9686, 9679, 9673
+}
+LAST_Z = 9669                  # line cuoi, trigger chest + /home
+
+TOTEM = "minecraft:totem_of_undying"
+FILL_ITEM = "minecraft:purple_dye"
+DYE_SLOT = 26
+DYE_MIN = 65
+
+# --- Trang thai ---
+_tick = 0
+_next_check = 0
+_mode = "idle"          # idle | reconnect | dye | move
+_step = ""
+_at = 0
+
+# Move state rieng
+_move_dir = ""          # "left" | "right"
+_prev_x = 0.0
+_stuck = 0
+
+m.player_set_orientation(-180, -59)
+def trigger_attack_click():
+    """Goi KeyMapping.click() de tang clickCount -> game goi startAttack()."""
+    try:
+        KeyMapping.click(_mouse_left_key)
+    except Exception:
+        pass
+
+
+def force_continue_attack():
+    """Goi truc tiep gameMode.continueDestroyBlock() - bypass toan bo keybinding.
+    Khong phu thuoc isDown, clickCount, missTime, hay window focus."""
+    try:
+        hr = _mc.hitResult
+        if hr is None:
+            return
+        pos = hr.getBlockPos()
+        direction = hr.getDirection()
+        if not _mc.level.getBlockState(pos).isAir():
+            _mc.gameMode.continueDestroyBlock(pos, direction)
+            _mc.player.swing(InteractionHand.MAIN_HAND)
+    except Exception:
+        pass
+
+
+def do_click(cid, slot, button, ctype):
+    _mc.gameMode.handleInventoryMouseClick(cid, slot, button, ctype, _mc.player)
+
+
+def slot_count():
+    if _mc.screen is None:
+        return None
+    try:
+        return _mc.screen.getMenu().slots.size()
+    except Exception:
+        return None
+
+
+def inv_item(idx):
+    item = _mc.player.getInventory().getItem(idx)
+    if item.isEmpty():
+        return None
+    return str(item.getItem())
+
+
+def is_at_hub():
+    return inv_item(4) == TOTEM
+
+
+def dye_needed():
+    item = _mc.player.getInventory().getItem(DYE_SLOT)
+    if item.isEmpty():
+        return False
+    return str(item.getItem()) == FILL_ITEM and item.getCount() >= DYE_MIN
+
+
+# --- Helper dye (thao tac tren slot MENU ruong) ---
+
+def first_dye_full_inv(menu, total):
+    i = total - 36
+    while i < total:
+        it = menu.getSlot(i).getItem()
+        if (not it.isEmpty()) and str(it.getItem()) == FILL_ITEM:
+            return i
+        i += 1
+    return -1
+
+
+def first_empty_main(menu, total):
+    i = total - 36
+    end = total - 9
+    while i < end:
+        if not menu.getSlot(i).hasItem():
+            return i
+        i += 1
+    return -1
+
+
+def first_dye_chest(menu, total):
+    i = 0
+    inv_start = total - 36
+    while i < inv_start:
+        it = menu.getSlot(i).getItem()
+        if (not it.isEmpty()) and str(it.getItem()) == FILL_ITEM:
+            return i
+        i += 1
+    return -1
+
+
+def first_empty_chest(menu, total):
+    i = 0
+    inv_start = total - 36
+    while i < inv_start:
+        if not menu.getSlot(i).hasItem():
+            return i
+        i += 1
+    return -1
+
+
+# --- Lay toa do ---
+
+def get_player_xz():
+    pos = _mc.player.position()
+    return pos.x, pos.z
+
+
+# --- Dung/phuc hoi movement keys ---
+
+def release_all_keys():
+    """Nha tat ca phim di chuyen + attack."""
+    try:
+        _mc.options.keyLeft.setDown(False)
+    except Exception:
+        pass
+    try:
+        _mc.options.keyRight.setDown(False)
+    except Exception:
+        pass
+    try:
+        _mc.options.keyUp.setDown(False)
+    except Exception:
+        pass
+    try:
+        _mc.options.keyAttack.setDown(False)
+    except Exception:
+        pass
+
+
+def press_left():
+    try:
+        _mc.options.keyLeft.setDown(True)
+    except Exception:
+        pass
+
+
+def press_right():
+    try:
+        _mc.options.keyRight.setDown(True)
+    except Exception:
+        pass
+
+
+def press_forward():
+    try:
+        _mc.options.keyUp.setDown(True)
+    except Exception:
+        pass
+
+
+def press_attack():
+    try:
+        _mc.options.keyAttack.setDown(True)
+    except Exception:
+        pass
+
+
+def release_attack():
+    try:
+        _mc.options.keyAttack.setDown(False)
+    except Exception:
+        pass
+
+
+# --- Khoi dong tung mode ---
+
+def start_reconnect(now):
+    global _mode, _step, _at
+    echo("§e[HUB] O hub, ket noi lai...")
+    _mode = "reconnect"; _step = "wait"; _at = now + RECONNECT_WAIT
+
+
+def start_dye(now):
+    global _mode, _step, _at
+    echo("§d[DYE] Du 32 lime_dye, mo ruong cat + fill...")
+    _mode = "dye"; _step = "open"; _at = now
+
+
+def start_move(now):
+    global _mode, _step, _at, _move_dir, _prev_x, _stuck
+    x, z = get_player_xz()
+    z_int = int(z)
+    echo(f"§a[MOVE] Z={z_int}, khoi dong di chuyen...")
+
+    if z_int in LEFT_Z:
+        _move_dir = "left"
+        press_left()
+        press_attack()
+        echo("§a[MOVE] Di qua trai + giu chuot trai")
+    elif z_int in RIGHT_Z:
+        _move_dir = "right"
+        press_right()
+        press_attack()
+        echo("§a[MOVE] Di qua phai + giu chuot trai")
+    else:
+        echo(f"§c[MOVE] Z={z_int} khong nam trong danh sach! Dung tai cho.")
+        _mode = "idle"
+        _next_check = now + MOVE_COOLDOWN
+        return
+
+    _prev_x = x
+    _stuck = 0
+    _mode = "move"
+    _step = "mining"
+
+
+# --- Xu ly tung mode ---
+
+def run_reconnect(now):
+    global _mode, _step, _at, _next_check
+    if now < _at:
+        return
+    if _step == "wait":
+        player_press_use(True); _step = "release"; _at = now + 3; return
+    if _step == "release":
+        player_press_use(False); _step = "click"; _at = now + 10; return
+    if _step == "click":
+        c = slot_count()
+        if c is not None:
+            if c >= 90:
+                do_click(_mc.screen.getMenu().containerId, 22, 0, ClickType.PICKUP)
+            elif c >= 41:
+                do_click(_mc.screen.getMenu().containerId, 4, 0, ClickType.PICKUP)
+        _mode = "idle"; _next_check = now + AFTER_RECONNECT_COOLDOWN; return
+
+
+def run_dye(now):
+    global _mode, _step, _at, _next_check
+    if now < _at:
+        return
+
+    if _step == "open":
+        player_press_use(True); _step = "open_release"; _at = now + 2; return
+    if _step == "open_release":
+        player_press_use(False); _step = "wait_open"; _at = now + CHEST_OPEN_GAP; return
+    if _step == "wait_open":
+        c = slot_count()
+        if c is not None and c >= 63:
+            _step = "clear"
+        else:
+            _mode = "idle"; _next_check = now + AFTER_DYE_COOLDOWN
+        return
+
+    menu = _mc.screen.getMenu() if _mc.screen is not None else None
+    if menu is None:
+        _mode = "idle"; _next_check = now + AFTER_DYE_COOLDOWN; return
+    total = menu.slots.size()
+    cid = menu.containerId
+
+    if _step == "clear":
+        dye = first_dye_full_inv(menu, total)
+        if dye != -1:
+            do_click(cid, dye, 0, ClickType.QUICK_MOVE); _at = now + ACTION_GAP; return
+        _step = "fill"; return
+
+    if _step == "fill":
+        carried = menu.getCarried()
+        holding = (not carried.isEmpty()) and str(carried.getItem()) == FILL_ITEM
+        empty = first_empty_main(menu, total)
+        if not holding:
+            if not carried.isEmpty():
+                return
+            if empty == -1:
+                _step = "close"; return
+            src = first_dye_chest(menu, total)
+            if src == -1:
+                _step = "close"; return
+            do_click(cid, src, 0, ClickType.PICKUP); _at = now + ACTION_GAP; return
+        else:
+            if empty != -1:
+                do_click(cid, empty, 1, ClickType.PICKUP); _at = now + ACTION_GAP; return
+            back = first_empty_chest(menu, total)
+            if back == -1:
+                back = first_dye_chest(menu, total)
+            if back != -1:
+                do_click(cid, back, 0, ClickType.PICKUP); _at = now + ACTION_GAP
+            _step = "close"; return
+
+    if _step == "close":
+        _mc.player.closeContainer()
+        _mode = "idle"; _next_check = now + AFTER_DYE_COOLDOWN; return
+
+
+def run_move(now):
+    """State machine di chuyen zigzag."""
+    global _mode, _step, _at, _next_check, _prev_x, _stuck, _move_dir
+
+    if now < _at:
+        return
+
+    # ------------------------------------------------------------
+    # Step: mining  -  dang dao line, kiem tra X co dung ko
+    # ------------------------------------------------------------
+    if _step == "mining":
+        # Ep giu phim huong moi tick
+        if _move_dir == "left":
+            press_left()
+        elif _move_dir == "right":
+            press_right()
+
+        # Goi truc tiep gameMode.continueDestroyBlock() moi tick.
+        # Bypass hoan toan keybinding (isDown, clickCount, missTime, window focus).
+        # Ham nay tu xu ly ca bat dau pha khoi moi lan doi target.
+        force_continue_attack()
+
+        x, z = get_player_xz()
+        if abs(x - _prev_x) < 0.1:
+            _stuck += 1
+        else:
+            _stuck = 0
+            _prev_x = x
+
+        if _stuck >= STUCK_MAX:
+            # Toi bien!
+            echo("§6[MOVE] Da toi bien")
+            release_all_keys()
+
+            z_int = int(z)
+            if z_int == LAST_Z and _move_dir == "left":
+                # Line cuoi 9669 + di trai -> mo ruong, cat/fill dye, /home
+                release_all_keys()
+                echo("§6[MOVE] Z=9669 line cuoi! Thuc hien chest + /home...")
+                _step = "Screen_None"
+                _at = now
+            else:
+                # Tien len truoc 1 giay
+                echo("§6[MOVE] Tien len truoc 14 tick...")
+                press_forward()
+                _step = "forward"
+                _at = now + FORWARD_TICKS
+        return
+
+    # -----------------------------------------------------------
+    # Step: forward  -  tien len 1 giay, roi idle
+    # -----------------------------------------------------------
+    if _step == "forward":
+        release_all_keys()
+        echo("§a[MOVE] Da tien len. Check Z va lap...")
+        _mode = "idle"
+        _next_check = now + MOVE_COOLDOWN
+        return
+
+    # ------------------------------------------------------------
+    # Step: chest_open -> chest_clear -> chest_fill -> chest_close
+    # (giong run_dye nhung inline cho Z=9669)
+    # ------------------------------------------------------------
+    if _step == "Screen_None":
+        _mc.setScreen(None)
+        _step = "chest_open"
+        _at = now + 5
+        return
+    if _step == "chest_open":
+        player_press_use(True)
+        _step = "chest_open_release"
+        _at = now + 5
+        return
+
+    if _step == "chest_open_release":
+        player_press_use(False)
+        _step = "chest_wait_open"
+        _at = now + CHEST_OPEN_GAP
+        return
+
+    if _step == "chest_wait_open":
+        c = slot_count()
+        if c is not None and c >= 63:
+            _step = "chest_clear"
+        else:
+            echo("§c[MOVE] Khong thay ruong, thu lai lan 2...")
+            _step = "chest_open_2"
+            _at = now + 5
+# Thử lại lần 2 mở rương, nếu ko đc nữa mới /home
+    if _step == "chest_open_2":
+        player_press_use(True)
+        _step = "chest_open_release_2"
+        _at = now + 5
+        return
+
+    if _step == "chest_open_release_2":
+        player_press_use(False)
+        _step = "chest_wait_open_2"
+        _at = now + CHEST_OPEN_GAP
+        return
+
+    if _step == "chest_wait_open_2":
+        c = slot_count()
+        if c is not None and c >= 63:
+            _step = "chest_clear"
+        else:
+            echo("§c[MOVE] Lan 2 cung ko thay ruong, ve home...")
+            _step = "home"
+            _at = now + 5
+        return
+    if _step in ("chest_clear", "chest_fill", "chest_close"):
+        menu = _mc.screen.getMenu() if _mc.screen is not None else None
+        if menu is None:
+            echo("§c[MOVE] Mat menu ruong.")
+            _step = "home"
+            _at = now
+            return
+        total = menu.slots.size()
+        cid = menu.containerId
+
+    if _step == "chest_clear":
+        dye = first_dye_full_inv(menu, total)
+        if dye != -1:
+            do_click(cid, dye, 0, ClickType.QUICK_MOVE)
+            _at = now + ACTION_GAP
+            return
+        _step = "chest_fill"
+        return
+
+    if _step == "chest_fill":
+        carried = menu.getCarried()
+        holding = (not carried.isEmpty()) and str(carried.getItem()) == FILL_ITEM
+        empty = first_empty_main(menu, total)
+        if not holding:
+            if not carried.isEmpty():
+                return
+            if empty == -1:
+                _step = "chest_close"
+                _at = now + 5
+                return
+            src = first_dye_chest(menu, total)
+            if src == -1:
+                _step = "chest_close"
+                _at = now + 5
+                return
+            do_click(cid, src, 0, ClickType.PICKUP)
+            _at = now + ACTION_GAP
+            return
+        else:
+            if empty != -1:
+                do_click(cid, empty, 1, ClickType.PICKUP)
+                _at = now + ACTION_GAP
+                return
+            back = first_empty_chest(menu, total)
+            if back == -1:
+                back = first_dye_chest(menu, total)
+            if back != -1:
+                do_click(cid, back, 0, ClickType.PICKUP)
+                _at = now + ACTION_GAP
+            _step = "chest_close"
+            return
+
+    if _step == "chest_close":
+        _mc.player.closeContainer()
+        echo("§a[MOVE] Da cat/fill dye, dong ruong.")
+        _step = "home"
+        _at = now + 5
+        return
+
+    # ------------------------------------------------------------
+    # Step: home  -  /home + cho 5 giay
+    # ------------------------------------------------------------
+    if _step == "home":
+        execute("/home")
+        echo("§a[MOVE] /home, cho 5 giay...")
+        _step = "home_wait"
+        _at = now + HOME_WAIT
+        return
+
+    if _step == "home_wait":
+        echo("§a[MOVE] Tien len truoc 1 giay...")
+        press_forward()
+        _step = "home_forward"
+        _at = now + FORWARD_TICKS
+        return
+
+    if _step == "home_forward":
+        release_all_keys()
+        echo("§a[MOVE] Hoan tat chu ky. Check Z va lap...")
+        _mode = "idle"
+        _next_check = now + MOVE_COOLDOWN
+        return
+
+
+# --- Vong lap tick ---
+
+def on_tick(event):
+    global _tick
+    _tick += 1
+    now = _tick
+
+    if _mode == "reconnect":
+        run_reconnect(now); return
+    if _mode == "dye":
+        run_dye(now); return
+    if _mode == "move":
+        run_move(now); return
+
+    # idle: cho qua cooldown roi check uu tien
+    if now < _next_check:
+        return
+    if is_at_hub():
+        start_reconnect(now); return
+    if dye_needed():
+        start_dye(now); return
+    # Mac dinh: vao luong di chuyen zigzag
+    start_move(now)
+
+
+echo("§aMinescript da bat: reconnect totem | cat/fill dye | zigzag mining theo Z.")
+add_event_listener("tick", on_tick)
