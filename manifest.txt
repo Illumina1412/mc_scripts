@@ -16,3 +16,5 @@ system/exec/forging24.py overwrite
 system/exec/forging25.py overwrite
 system/exec/forging12.py overwrite
 system/exec/forging15.py overwrite
+system/exec/melon_v2.py overwrite
+system/exec/xoaydau.py overwrite
