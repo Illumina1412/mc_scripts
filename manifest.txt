@@ -14,7 +14,7 @@ system/exec/fighting.py overwrite
 system/exec/forging19.py overwrite
 system/exec/forging26.py overwrite
 system/exec/forging25.py overwrite
-system/exec/forging12.py overwrite
+system/exec/forging27.py overwrite
 system/exec/forging15.py overwrite
 system/exec/melon_v2.pyj overwrite
 system/exec/xoaydau.py overwrite
