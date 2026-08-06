@@ -561,5 +561,5 @@ def on_tick(event):
     start_move(now)
 
 
-echo("§aMinescript da bat: reconnect totem | cat/fill dye | zigzag mining theo Z.")
+echo("§aEz")
 add_event_listener("tick", on_tick)
