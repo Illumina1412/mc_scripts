@@ -22,3 +22,4 @@ system/exec/forging32.py overwrite
 system/exec/forging15.py overwrite
 system/exec/melon_v2.pyj overwrite
 system/exec/xoaydau.py overwrite
+system/exec/farm_dungcam.pyj overwrite
