@@ -55,7 +55,7 @@ def reconnect():
     if slot_count is None:
         m.echo("§cKhông mở được GUI."); return
     if slot_count >= 90:
-        click_slot(29); time.sleep(1.0)
+        click_slot(22); time.sleep(1.0)
     elif slot_count >= 41:
         click_slot(4); time.sleep(5.0)
 
