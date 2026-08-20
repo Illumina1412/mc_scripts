@@ -7,7 +7,7 @@ _mc = Minecraft.getInstance()
 
 STOP_CMD = "#stop"
 WARP_CMD = "/warp vietnam"
-HOME_CMD = "/home"
+HOME_CMD = "/home mine"
 MINE_CMD = "#mine minecraft:coal_ore minecraft:copper_ore minecraft:iron_ore minecraft:emerald_ore"
 
 FILL_ITEM = "minecraft:yellow_dye"
