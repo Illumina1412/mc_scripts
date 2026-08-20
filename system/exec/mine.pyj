@@ -1,0 +1,398 @@
+
+from system.pyj.minescript import *
+
+Minecraft = JavaClass("net.minecraft.client.Minecraft")
+ClickType = JavaClass("net.minecraft.world.inventory.ClickType")
+_mc = Minecraft.getInstance()
+
+STOP_CMD = "#stop"
+WARP_CMD = "/warp vietnam"
+HOME_CMD = "/home"
+MINE_CMD = "#mine minecraft:coal_ore minecraft:copper_ore minecraft:iron_ore minecraft:emerald_ore"
+
+FILL_ITEM = "minecraft:yellow_dye"
+DYE_SLOT = 35
+DYE_MIN = 32
+TOTEM = "minecraft:totem_of_undying"
+
+DEPOSIT_ALL_LOOT = False
+
+WAIT_AFTER_STOP = 20
+WAIT_AFTER_WARP = 100
+STRAFE_TICKS = 60
+FORWARD_TICKS = 60
+SETTLE_AFTER_MOVE = 10
+CHEST_OPEN_GAP = 10
+ACTION_GAP = 3
+WAIT_AFTER_HOME = 100
+AFTER_TRIP_COOLDOWN = 200
+STARTUP_WAIT = 200
+MAX_ACTIONS = 150
+
+RECONNECT_WAIT = 50
+RECONNECT_RELEASE = 10
+RECONNECT_CLICK_GAP = 20
+AFTER_RECONNECT_MINE = 240
+
+WATCHDOG_ON = True
+POS_SAMPLE_EVERY = 20
+STUCK_MOVE_MIN = 1.5
+STUCK_TICKS = 600
+RESCUE_SEND_STOP = True
+RESCUE_COOLDOWN = 300
+
+_tick = 0
+_next_check = 0
+_mode = "idle"
+_step = ""
+_at = 0
+_guard = 0
+_startup = True
+_startup_at = STARTUP_WAIT
+
+_last_x = 0.0
+_last_y = 0.0
+_last_z = 0.0
+_last_move_tick = 0
+_last_sample = 0
+_rescue_count = 0
+
+def send_cmd(msg):
+    if msg[0] == "/":
+        execute(msg)
+    else:
+        chat(msg)
+
+def do_click(cid, slot, button, ctype):
+    _mc.gameMode.handleInventoryMouseClick(cid, slot, button, ctype, _mc.player)
+
+def click_slot(slot):
+    if _mc.screen is None:
+        return False
+    menu = _mc.screen.getMenu()
+    do_click(menu.containerId, slot, 0, ClickType.PICKUP)
+    return True
+
+def force_close_screen():
+    if _mc.screen is None:
+        return
+    cid = 0
+    try:
+        cid = _mc.player.containerMenu.containerId
+    except Exception:
+        cid = 0
+    if cid != 0:
+        _mc.player.closeContainer()
+    else:
+        _mc.setScreen(None)
+    if _mc.screen is not None:
+        _mc.setScreen(None)
+
+def slot_count():
+    if _mc.screen is None:
+        return None
+    try:
+        return _mc.screen.getMenu().slots.size()
+    except Exception:
+        return None
+
+def inv_item(idx):
+    item = _mc.player.getInventory().getItem(idx)
+    if item.isEmpty():
+        return None
+    return str(item.getItem())
+
+def is_at_hub():
+    return inv_item(4) == TOTEM
+
+def dye_needed():
+    item = _mc.player.getInventory().getItem(DYE_SLOT)
+    if item.isEmpty():
+        return False
+    return str(item.getItem()) == FILL_ITEM and item.getCount() >= DYE_MIN
+
+def release_all_keys():
+    player_press_forward(False)
+    player_press_right(False)
+    player_press_left(False)
+    player_press_backward(False)
+    player_press_use(False)
+
+def first_deposit_slot(menu, total):
+    i = total - 36
+    end = total - 9
+    while i < end:
+        it = menu.getSlot(i).getItem()
+        if not it.isEmpty():
+            if DEPOSIT_ALL_LOOT or str(it.getItem()) == FILL_ITEM:
+                return i
+        i += 1
+    i = total - 9
+    while i < total:
+        it = menu.getSlot(i).getItem()
+        if (not it.isEmpty()) and str(it.getItem()) == FILL_ITEM:
+            return i
+        i += 1
+    return -1
+
+def first_empty_main(menu, total):
+    i = total - 36
+    end = total - 9
+    while i < end:
+        if not menu.getSlot(i).hasItem():
+            return i
+        i += 1
+    return -1
+
+def first_dye_chest(menu, total):
+    i = 0
+    inv_start = total - 36
+    while i < inv_start:
+        it = menu.getSlot(i).getItem()
+        if (not it.isEmpty()) and str(it.getItem()) == FILL_ITEM:
+            return i
+        i += 1
+    return -1
+
+def first_empty_chest(menu, total):
+    i = 0
+    inv_start = total - 36
+    while i < inv_start:
+        if not menu.getSlot(i).hasItem():
+            return i
+        i += 1
+    return -1
+
+def reset_watchdog(now):
+    global _last_x, _last_y, _last_z, _last_move_tick, _last_sample
+    try:
+        pos = player_position()
+        _last_x = pos[0]; _last_y = pos[1]; _last_z = pos[2]
+    except Exception:
+        _last_x = 0.0; _last_y = 0.0; _last_z = 0.0
+    _last_move_tick = now
+    _last_sample = now
+
+def is_stuck(now):
+    global _last_x, _last_y, _last_z, _last_move_tick, _last_sample
+    if now - _last_sample < POS_SAMPLE_EVERY:
+        return False
+    _last_sample = now
+    try:
+        pos = player_position()
+    except Exception:
+        return False
+    dx = pos[0] - _last_x
+    dy = pos[1] - _last_y
+    dz = pos[2] - _last_z
+    if dx * dx + dy * dy + dz * dz >= STUCK_MOVE_MIN * STUCK_MOVE_MIN:
+        _last_x = pos[0]; _last_y = pos[1]; _last_z = pos[2]
+        _last_move_tick = now
+        return False
+    return now - _last_move_tick >= STUCK_TICKS
+
+def start_reconnect(now):
+    global _mode, _step, _at
+    echo("§e[HUB] O hub, ket noi lai...")
+    _mode = "reconnect"; _step = "wait"; _at = now + RECONNECT_WAIT
+
+def start_trip(now):
+    global _mode, _step, _at, _guard
+    echo("§d[TRIP] Day do, di cat kho...")
+    _mode = "trip"; _step = "stop"; _at = now; _guard = 0
+
+def start_rescue(now):
+    global _mode, _step, _at, _rescue_count
+    _rescue_count += 1
+    _mode = "rescue"; _step = "stop"; _at = now
+
+def run_reconnect(now):
+    global _mode, _step, _at, _next_check
+    if now < _at:
+        return
+
+    if _step == "wait":
+        player_press_use(True)
+        _step = "release"; _at = now + 3; return
+
+    if _step == "release":
+        player_press_use(False)
+        _step = "click"; _at = now + RECONNECT_RELEASE; return
+
+    if _step == "click":
+        c = slot_count()
+        if c is None:
+            echo("§c[RECONNECT] Khong mo duoc GUI.")
+            _mode = "idle"; _next_check = now + AFTER_TRIP_COOLDOWN
+            reset_watchdog(now); return
+        if c >= 90:
+            click_slot(22)
+        _step = "click2"; _at = now + RECONNECT_CLICK_GAP; return
+
+    if _step == "click2":
+        c = slot_count()
+        if c is None:
+            echo("§c[RECONNECT] Khong mo duoc GUI.")
+            _mode = "idle"; _next_check = now + AFTER_TRIP_COOLDOWN
+            reset_watchdog(now); return
+        if c >= 41:
+            click_slot(4)
+        _step = "mine"; _at = now + AFTER_RECONNECT_MINE; return
+
+    if _step == "mine":
+        send_cmd(MINE_CMD)
+        echo("§a[RECONNECT] Da vao lai earth.")
+        _mode = "idle"; _next_check = now + AFTER_TRIP_COOLDOWN
+        reset_watchdog(now); return
+
+def run_rescue(now):
+    global _mode, _step, _at, _next_check
+    if now < _at:
+        return
+
+    if _step == "stop":
+        if RESCUE_SEND_STOP:
+            send_cmd(STOP_CMD)
+        release_all_keys()
+        force_close_screen()
+        _step = "home"; _at = now + WAIT_AFTER_STOP; return
+
+    if _step == "home":
+        send_cmd(HOME_CMD); _step = "mine"; _at = now + WAIT_AFTER_HOME; return
+
+    if _step == "mine":
+        send_cmd(MINE_CMD)
+        _mode = "idle"; _next_check = now + RESCUE_COOLDOWN
+        reset_watchdog(now); return
+
+def run_trip(now):
+    global _mode, _step, _at, _next_check, _guard
+    if now < _at:
+        return
+
+    if _step == "stop":
+        force_close_screen()
+        send_cmd(STOP_CMD)
+        release_all_keys()
+        _step = "warp"; _at = now + WAIT_AFTER_STOP; return
+
+    if _step == "warp":
+        send_cmd(WARP_CMD); _step = "strafe"; _at = now + WAIT_AFTER_WARP; return
+
+    if _step == "strafe":
+        player_press_left(True); _step = "strafe_end"; _at = now + STRAFE_TICKS; return
+    if _step == "strafe_end":
+        player_press_left(False); _step = "forward"; _at = now + 2; return
+    if _step == "forward":
+        player_press_forward(True); _step = "forward_end"; _at = now + FORWARD_TICKS; return
+    if _step == "forward_end":
+        player_press_forward(False); _step = "open"; _at = now + SETTLE_AFTER_MOVE; return
+
+    if _step == "open":
+        force_close_screen()
+        _step = "open_press"; _at = now + 5; return
+    if _step == "open_press":
+        player_press_use(True); _step = "open_release"; _at = now + 2; return
+    if _step == "open_release":
+        player_press_use(False); _step = "wait_open"; _at = now + CHEST_OPEN_GAP; return
+    if _step == "wait_open":
+        c = slot_count()
+        if c is not None and c >= 63:
+            _step = "clear"; _guard = 0
+        else:
+            echo("§c[TRIP] Khong mo duoc ruong, ve nha va thu lai sau.")
+            _step = "home"
+        return
+
+    if _step == "clear" or _step == "fill":
+        menu = _mc.screen.getMenu() if _mc.screen is not None else None
+        if menu is None:
+            echo("§c[TRIP] Ruong bi dong giua chung.")
+            _step = "home"; return
+        total = menu.slots.size()
+        cid = menu.containerId
+
+        if _guard > MAX_ACTIONS:
+            echo("§c[TRIP] Qua nhieu thao tac")
+            _step = "close"; return
+
+        if _step == "clear":
+            src = first_deposit_slot(menu, total)
+            if src != -1:
+                do_click(cid, src, 0, ClickType.QUICK_MOVE)
+                _guard += 1; _at = now + ACTION_GAP; return
+            _step = "fill"; _guard = 0; return
+
+        if _step == "fill":
+            carried = menu.getCarried()
+            holding = (not carried.isEmpty()) and str(carried.getItem()) == FILL_ITEM
+            empty = first_empty_main(menu, total)
+            if not holding:
+                if not carried.isEmpty():
+                    return
+                if empty == -1:
+                    _step = "close"; return
+                src = first_dye_chest(menu, total)
+                if src == -1:
+                    _step = "close"; return
+                do_click(cid, src, 0, ClickType.PICKUP)
+                _guard += 1; _at = now + ACTION_GAP; return
+            else:
+                if empty != -1:
+                    do_click(cid, empty, 1, ClickType.PICKUP)
+                    _guard += 1; _at = now + ACTION_GAP; return
+                back = first_empty_chest(menu, total)
+                if back == -1:
+                    back = first_dye_chest(menu, total)
+                if back != -1:
+                    do_click(cid, back, 0, ClickType.PICKUP); _at = now + ACTION_GAP
+                _step = "close"; return
+
+    if _step == "close":
+        if _mc.screen is not None:
+            _mc.player.closeContainer()
+        _step = "home"; _at = now + 10; return
+
+    if _step == "home":
+        send_cmd(HOME_CMD); _step = "mine"; _at = now + WAIT_AFTER_HOME; return
+
+    if _step == "mine":
+        send_cmd(MINE_CMD)
+        echo("§atiep tuc dao.")
+        _mode = "idle"; _next_check = now + AFTER_TRIP_COOLDOWN
+        reset_watchdog(now); return
+
+def on_tick(event):
+    global _tick, _startup
+    _tick += 1
+    now = _tick
+
+    if _startup:
+        if now >= _startup_at:
+            _startup = False
+            send_cmd(MINE_CMD)
+            reset_watchdog(now)
+            echo("§aStart")
+        return
+
+    if _mode == "reconnect":
+        run_reconnect(now); return
+    if _mode == "trip":
+        run_trip(now); return
+    if _mode == "rescue":
+        run_rescue(now); return
+
+    if now < _next_check:
+        return
+    if is_at_hub():
+        start_reconnect(now); return
+    if dye_needed():
+        start_trip(now); return
+
+    if WATCHDOG_ON and _mc.screen is None:
+        if is_stuck(now):
+            start_rescue(now); return
+
+echo("§aAutobot_mining.")
+add_event_listener("tick", on_tick)
+
